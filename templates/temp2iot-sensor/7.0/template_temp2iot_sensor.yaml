@@ -1,0 +1,172 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: c524233e694642e59341af2b9efd46f7
+      name: enviroment
+  templates:
+    - uuid: 3b1ba354e3c54c00941a1dc6e9774983
+      template: 'Temp2IoT Sensor'
+      name: 'Temp2IoT Sensor'
+      vendor:
+        name: strfl89
+        version: '2.0.0'
+      description: |
+        Monitors a Temp2IoT ESP-based sensor via HTTP API.
+        Auto-discovers all connected sensors (DS18B20 or similar)
+        via LLD from /api endpoint.
+
+        Per-sensor thresholds (high/low, warn/critical) configurable
+        via context macros:
+          {$TEMP.HIGH.WARN:"sensorname"}
+          {$TEMP.HIGH.CRIT:"sensorname"}
+          {$TEMP.LOW.WARN:"sensorname"}
+          {$TEMP.LOW.CRIT:"sensorname"}
+        Or globally without sensor context.
+      groups:
+        - name: enviroment
+      items:
+        - uuid: fb56e7d9cd054f6fb02eddf737e3c9e5
+          name: 'API: Get Raw Data'
+          type: HTTP_AGENT
+          key: temp2iot.api.raw
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          timeout: 15s
+          url: 'http://{HOST.CONN}/api'
+          tags:
+            - tag: component
+              value: api
+        - uuid: f968130992234f0b8b1a5816f9c012ec
+          name: 'Temp2IoT: Firmware Version'
+          type: DEPENDENT
+          key: temp2iot.firmware
+          delay: '0'
+          value_type: CHAR
+          trends: '0'
+          inventory_link: OS
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.firmware
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - '3600'
+          master_item:
+            key: temp2iot.api.raw
+          tags:
+            - tag: component
+              value: firmware
+        - uuid: 9ddc872e84df4501ba79104de2e3512b
+          name: 'Temp2IoT: System Name'
+          type: DEPENDENT
+          key: temp2iot.systemname
+          delay: '0'
+          value_type: CHAR
+          trends: '0'
+          inventory_link: NAME
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.systemname
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - '3600'
+          master_item:
+            key: temp2iot.api.raw
+      discovery_rules:
+        - uuid: 138ee4d0ac7f4ae6b3ffacbbcda91359
+          name: 'Discover Temp2IoT Sensors'
+          type: DEPENDENT
+          key: temp2iot.sensors.discovery
+          delay: '0'
+          master_item:
+            key: temp2iot.api.raw
+          lld_macro_paths:
+            - lld_macro: '{#SENSORNAME}'
+              path: $.name
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.sensors
+          item_prototypes:
+            - uuid: 1ae965258fed4c7fb4dfb78d16f1336a
+              name: '{#SENSORNAME} temperature'
+              type: DEPENDENT
+              key: 'temp2iot.sensor.temp[{#SENSORNAME}]'
+              delay: '0'
+              history: 30d
+              value_type: FLOAT
+              units: °C
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.sensors[?(@.name == ''{#SENSORNAME}'')].value.first()'
+              master_item:
+                key: temp2iot.api.raw
+              tags:
+                - tag: component
+                  value: temperature
+                - tag: sensor
+                  value: '{#SENSORNAME}'
+              trigger_prototypes:
+                - uuid: a1b2c34d5e6f4a7b8c9d0e1f2a3b4c5e
+                  expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)>{$TEMP.HIGH.CRIT:"{#SENSORNAME}"}'
+                  name: '{#SENSORNAME}: temperature critical high (>{$TEMP.HIGH.CRIT:"{#SENSORNAME}"}°C)'
+                  priority: HIGH
+                  description: 'Average temperature over 5 minutes exceeded critical high threshold.'
+                  tags:
+                    - tag: sensor
+                      value: '{#SENSORNAME}'
+                    - tag: threshold
+                      value: high-crit
+                - uuid: b2c3d45e6f7a4b8c9d0e1f2a3b4c5d6f
+                  expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)>{$TEMP.HIGH.WARN:"{#SENSORNAME}"}'
+                  name: '{#SENSORNAME}: temperature warning high (>{$TEMP.HIGH.WARN:"{#SENSORNAME}"}°C)'
+                  priority: WARNING
+                  description: 'Average temperature over 5 minutes exceeded warning high threshold.'
+                  dependencies:
+                    - name: '{#SENSORNAME}: temperature critical high (>{$TEMP.HIGH.CRIT:"{#SENSORNAME}"}°C)'
+                      expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)>{$TEMP.HIGH.CRIT:"{#SENSORNAME}"}'
+                  tags:
+                    - tag: sensor
+                      value: '{#SENSORNAME}'
+                    - tag: threshold
+                      value: high-warn
+                - uuid: f3d1c72890ae43cb98d2e4b167f38a05
+                  expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)<{$TEMP.LOW.CRIT:"{#SENSORNAME}"}'
+                  name: '{#SENSORNAME}: temperature critical low (<{$TEMP.LOW.CRIT:"{#SENSORNAME}"}°C)'
+                  priority: HIGH
+                  description: 'Average temperature over 5 minutes below critical low threshold.'
+                  tags:
+                    - tag: sensor
+                      value: '{#SENSORNAME}'
+                    - tag: threshold
+                      value: low-crit
+                - uuid: b592a30fc814471a8b6e2d9f7c34a058
+                  expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)<{$TEMP.LOW.WARN:"{#SENSORNAME}"}'
+                  name: '{#SENSORNAME}: temperature warning low (<{$TEMP.LOW.WARN:"{#SENSORNAME}"}°C)'
+                  priority: WARNING
+                  description: 'Average temperature over 5 minutes below warning low threshold.'
+                  dependencies:
+                    - name: '{#SENSORNAME}: temperature critical low (<{$TEMP.LOW.CRIT:"{#SENSORNAME}"}°C)'
+                      expression: 'avg(/Temp2IoT Sensor/temp2iot.sensor.temp[{#SENSORNAME}],5m)<{$TEMP.LOW.CRIT:"{#SENSORNAME}"}'
+                  tags:
+                    - tag: sensor
+                      value: '{#SENSORNAME}'
+                    - tag: threshold
+                      value: low-warn
+      macros:
+        - macro: '{$TEMP.HIGH.CRIT}'
+          value: '35'
+          description: 'Critical high threshold (°C), global fallback'
+        - macro: '{$TEMP.HIGH.WARN}'
+          value: '30'
+          description: 'Warning high threshold (°C), global fallback'
+        - macro: '{$TEMP.LOW.CRIT}'
+          value: '5'
+          description: 'Critical low threshold (°C), global fallback'
+        - macro: '{$TEMP.LOW.WARN}'
+          value: '10'
+          description: 'Warning low threshold (°C), global fallback'
