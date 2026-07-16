@@ -1,0 +1,77 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: a1b2c3d4e5f64a7b8c9d0e1f2a3b4c5d
+      name: 'Templates/Operating systems'
+  templates:
+    - uuid: b2c3d4e5f6a74b8c9d0e1f2a3b4c5d6e
+      template: 'Linux Kernel Version Check by Zabbix Agent'
+      name: 'Linux Kernel Version Check by Zabbix Agent'
+      description: 'Monitors the running Linux kernel version against the latest installed kernel version in /boot using a native Zabbix Active Agent. Triggers an information alert if a reboot is required.'
+      vendor:
+        name: 'strfl89'
+        version: '1.0.0'
+      groups:
+        - name: 'Templates/Operating systems'
+      items:
+        - uuid: c3d4e5f6a7b84c9da0e12f3a4b5c6d7e
+          name: 'Running kernel version'
+          type: ZABBIX_ACTIVE
+          key: 'vfs.file.contents[/proc/sys/kernel/osrelease]'
+          delay: 1h
+          value_type: CHAR
+          description: 'Reads the currently running kernel version directly from the system (equivalent to uname -r).'
+          preprocessing:
+            - type: REGEX
+              parameters:
+                - '^([^\n]+)'
+                - '\1'
+          tags:
+            - tag: component
+              value: os
+            - tag: component
+              value: 'linux kernel'
+        - uuid: d4e5f6a7b8c94d0eb1f23a4b5c6d7e8f
+          name: 'Latest installed kernel version'
+          type: ZABBIX_ACTIVE
+          key: 'vfs.dir.get[/boot,"^vmlinuz-[0-9]"]'
+          delay: 1h
+          value_type: CHAR
+          description: 'Looks for vmlinuz files in the /boot directory and filters out the latest version via JavaScript.'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var files = JSON.parse(value);
+                  if (!files || files.length === 0) return 'unknown';
+                  
+                  // Filter and extract pure version strings
+                  var versions = files.map(function(f) {
+                      return f.basename.replace('vmlinuz-', '');
+                  });
+                  
+                  // Natural version sorting (equivalent to sort -V)
+                  versions.sort(function(a, b) {
+                      return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+                  });
+                  
+                  // Return the newest kernel version on disk
+                  return versions[versions.length - 1];
+          tags:
+            - tag: component
+              value: os
+            - tag: component
+              value: 'linux kernel'
+  triggers:
+    - uuid: e5f6a7b8c9d04e1f82a34b5c6d7e8f9a
+      expression: 'last(/Linux Kernel Version Check by Zabbix Agent/vfs.file.contents[/proc/sys/kernel/osrelease])<>last(/Linux Kernel Version Check by Zabbix Agent/vfs.dir.get[/boot,"^vmlinuz-[0-9]"])'
+      name: 'Linux Kernel Version'
+      priority: INFO
+      description: 'Reboot required: Running kernel {ITEM.LASTVALUE1} is too old, newest kernel on disk is {ITEM.LASTVALUE2}'
+      tags:
+        - tag: component
+          value: os
+        - tag: component
+          value: 'linux kernel'
+        - tag: scope
+          value: notice
